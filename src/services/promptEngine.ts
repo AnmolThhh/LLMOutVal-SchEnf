@@ -1,11 +1,5 @@
-import type { SchemaBlueprint } from './services/dynamicCompiler.js';
+import type { SchemaBlueprint } from '../services/dynamicCompiler.js';
 
-/**
- * Generates a hyper-specific markdown prompt for the local LLM.
- * * @param text The raw natural language input string.
- * @param blueprint The schema configuration defining our expected keys.
- * @param validationError Optional feedback from Zod if a previous attempt failed.
- */
 export function generateExtractionPrompt(
   text: string, 
   blueprint: SchemaBlueprint, 

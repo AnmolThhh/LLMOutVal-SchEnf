@@ -1,30 +1,48 @@
+// src/ollamaService.ts
 import ollama from 'ollama';
 import { generateDynamicSchema, type SchemaBlueprint } from './dynamicCompiler.js';
 import { generateExtractionPrompt } from './promptEngine.js';
+import { saveLogToDb } from '../db/db.js';
 
 export class ExtractionService {
   private model = process.env.OLLAMA_MODEL || "qwen2.5:1.5b";
   private maxRetries = 3;
 
-  async extract(text: string, blueprint: SchemaBlueprint, strategy: 'json_instruction' | 'few_shot' = 'json_instruction') {
+  async extract(schemaName: string, text: string, blueprint: SchemaBlueprint) {
     const startTime = Date.now();
     const zodSchema = generateDynamicSchema(blueprint);
-    const history: any[] = []; // This stores every attempt's result
+    const history: any[] = []; 
 
     try {
-      const validatedData = await this.executeLoop(text, blueprint, zodSchema, 0, strategy, history);
+      const validatedData = await this.executeLoop(text, blueprint, zodSchema, 0, history);
+      const latencyMs = Date.now() - startTime;
+
+      saveLogToDb({
+        schemaName,
+        prompt: text,
+        status: 'Success',
+        attempts: history.length,
+        latencyMs,
+        errorHistory: history
+      });
       
-      // Success response with simple metrics
       return {
         success: true,
         data: validatedData,
-        metadata: {
-          attempts: history.length,
-          latencyMs: Date.now() - startTime
-        }
+        metadata: { attempts: history.length, latencyMs }
       };
     } catch (error: any) {
-      // Failure response showing the "why"
+      const latencyMs = Date.now() - startTime;
+
+      saveLogToDb({
+        schemaName,
+        prompt: text,
+        status: 'Failure',
+        attempts: history.length,
+        latencyMs,
+        errorHistory: history
+      });
+
       return {
         success: false,
         error: "Failed after 3 attempts.",
@@ -33,13 +51,9 @@ export class ExtractionService {
     }
   }
 
-  private async executeLoop(text: string, blueprint: SchemaBlueprint, zodSchema: any, currentRetry: number, strategy: string, history: any[], lastError?: string): Promise<any> {
-    let prompt = generateExtractionPrompt(text, blueprint, lastError);
-
-    // Simple "Few-Shot" logic: give it a tiny example if requested
-    if (strategy === 'few_shot') {
-      prompt += `\nExample format: {"key": "value"}`;
-    }
+  private async executeLoop(text: string, blueprint: SchemaBlueprint, zodSchema: any, currentRetry: number, history: any[], lastError?: string): Promise<any> {
+    // ⚡ pure deterministic JSON instruction path
+    const prompt = generateExtractionPrompt(text, blueprint, lastError);
 
     try {
       const response = await ollama.generate({ model: this.model, prompt: prompt, options: { temperature: 0.1 } });
@@ -52,24 +66,29 @@ export class ExtractionService {
         return validation.data;
       }
 
-      // Record the error and retry
       const errorMsg = validation.error.errors.map((e: any) => e.message).join('; ');
       history.push({ attempt: currentRetry + 1, error: errorMsg });
 
       if (currentRetry < this.maxRetries - 1) {
-        return this.executeLoop(text, blueprint, zodSchema, currentRetry + 1, strategy, history, errorMsg);
+        return this.executeLoop(text, blueprint, zodSchema, currentRetry + 1, history, errorMsg);
       }
       throw new Error(errorMsg);
 
     } catch (e: any) {
+      const syntaxCrashText = e instanceof SyntaxError ? "Invalid JSON structure context." : e.message;
+      
+      if (!history.some(h => h.attempt === currentRetry + 1)) {
+        history.push({ attempt: currentRetry + 1, error: syntaxCrashText });
+      }
+
       if (currentRetry < this.maxRetries - 1) {
-        return this.executeLoop(text, blueprint, zodSchema, currentRetry + 1, strategy, history, "Invalid JSON structure.");
+        return this.executeLoop(text, blueprint, zodSchema, currentRetry + 1, history, syntaxCrashText);
       }
       throw e;
     }
   }
 
   private extractJsonString(raw: string): string {
-    return raw.replace(/```json|```/g, "").trim(); // Simple regex to clean markdown
+    return raw.replace(/```json|```/g, "").trim(); 
   }
 }

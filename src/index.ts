@@ -1,6 +1,8 @@
 import express from 'express';
 import dotenv from 'dotenv';
 import {handleExtraction} from './controllers/extractionController.js';
+import {getHistory} from './controllers/historyController.js';
+import cors from 'cors';
 
 dotenv.config();
 
@@ -8,9 +10,12 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const MODEL_NAME = process.env.OLLAMA_MODEL || "default-model";
 
+app.use(cors());
 app.use(express.json());
 
 app.post("/api/v1/extract", handleExtraction);
+
+app.get("/api/v1/history", getHistory);
 
 app.get("/health", (req: express.Request, res: express.Response) => {
     res.status(200).json({ status: "UP", timestamp: new Date().toISOString() });

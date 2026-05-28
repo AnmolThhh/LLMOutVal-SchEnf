@@ -7,17 +7,17 @@ const service = new ExtractionService();
 
 export async function handleExtraction(req: express.Request, res: express.Response): Promise<any> {
   try {
-    const { unstructuredText, schemaBlueprint } = req.body;
+    const { schemaName, unstructuredText, schemaBlueprint } = req.body;
 
-    if (!unstructuredText || !schemaBlueprint) {
+    if (!schemaName || !unstructuredText || !schemaBlueprint) {
       return res.status(400).json({
         success: false,
-        error: "Missing parameters."
+        error: "Missing parameters: schemaName, unstructuredText, and schemaBlueprint are required."
       });
     }
 
     console.log("Received extraction request");
-    const structuredResult = await service.extract(unstructuredText, schemaBlueprint);
+    const structuredResult = await service.extract(schemaName, unstructuredText, schemaBlueprint);
 
     return res.status(200).json({
       success: true,
